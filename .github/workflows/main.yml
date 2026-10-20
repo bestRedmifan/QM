@@ -1,0 +1,68 @@
+
+name: Build APK from ZIP
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: "Direct URL of the Android project ZIP"
+        required: true
+        type: string
+  push:
+    paths:
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download project ZIP
+        env:
+          ZIP_URL: ${{ inputs.zip_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ZIP_URL:-}" ]; then
+            echo "Enter a direct ZIP download URL."
+            exit 1
+          fi
+          curl --fail --location --silent --show-error \
+            "$ZIP_URL" -o project.zip
+          unzip -q project.zip -d project
+
+      - name: Locate Gradle project
+        run: |
+          set -euo pipefail
+          FILE="$(find project -name gradlew -type f -print -quit)"
+          if [ -z "$FILE" ]; then
+            echo "No Gradle wrapper (gradlew) found in ZIP."
+            exit 1
+          fi
+          ROOT="$(dirname "$FILE")"
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+          chmod +x "$FILE"
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_ROOT"
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-APK
+          path: project/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          
